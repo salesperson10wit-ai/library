@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Digital Library</title>
+  <link href="https://unpkg.com/tailwindcss@3.4.0/dist/tailwind.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+  <style>
+    * {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    
+    body {
+      background: #f8fafc;
+      min-height: 100vh;
+    }
+    
+    .card {
+      background: white;
+      border: 1px solid #e2e8f0;
+      transition: all 0.2s ease;
+    }
+    
+    .card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 25px -3px rgba(0, 0, 0, 0.1);
+    }
+    
+    .btn-primary {
+      background: #3b82f6;
+      color: white;
+      transition: all 0.2s ease;
+    }
+    
+    .btn-primary:hover {
+      background: #2563eb;
+    }
+    
+    .btn-secondary {
+      background: #6b7280;
+      color: white;
+      transition: all 0.2s ease;
+    }
+    
+    .btn-secondary:hover {
+      background: #4b5563;
+    }
+    
+    .loading {
+      display: none;
+    }
+    
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+    
+    .available {
+      background: #10b981;
+    }
+    
+    .unavailable {
+      background: #ef4444;
+    }
+  </style>
+</head>
+<body class="bg-gray-50">
+  <!-- Header -->
+  <header class="bg-white shadow-sm border-b">
+    <div class="container mx-auto px-6 py-6">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <i class="fas fa-book text-blue-600 text-2xl"></i>
+          <h1 class="text-2xl font-bold text-gray-900">Digital Library</h1>
+        </div>
+        <div class="text-sm text-gray-500">
+          <span id="book-count">0</span> books available
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="container mx-auto px-6 py-8 max-w-6xl">
+    <!-- Search Section -->
+    <div class="card rounded-xl p-6 mb-8">
+      <div class="flex flex-col md:flex-row gap-4">
+        <div class="flex-1">
+          <input
+            type="text"
+            id="search-input"
+            placeholder="Search books by title, author, ISBN..."
+            class="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+        </div>
+        <div class="w-full md:w-40">
+          <select id="search-type" class="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="title">Title</option>
+            <option value="author">Author</option>
+            <option value="isbn">ISBN</option>
+            <option value="keyword">Keywords</option>
+          </select>
+        </div>
+        <div class="flex gap-2">
+          <button
+            onclick="searchBooks()"
+            class="btn-primary px-6 py-3 rounded-lg font-medium">
+            <i class="fas fa-search mr-2"></i>Search
+          </button>
+          <button
+            onclick="fetchBooksFromSheet(true)"
+            class="btn-secondary px-4 py-3 rounded-lg">
+            <i class="fas fa-sync-alt"></i>
+          </button>
+        </div>
+      </div>
+      
+      <!-- Loading and Error -->
+      <div id="loading" class="hidden mt-4 text-center text-gray-600">
+        <i class="fas fa-spinner fa-spin mr-2"></i>Loading books...
+      </div>
+      <div id="error" class="hidden mt-4"></div>
+    </div>
+
+    <!-- Results -->
+    <div id="results" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"></div>
+    
+    <!-- Empty State -->
+    <div id="empty-state" class="hidden text-center py-16">
+      <i class="fas fa-book text-gray-300 text-6xl mb-4"></i>
+      <h3 class="text-xl font-semibold text-gray-700 mb-2">No books found</h3>
+      <p class="text-gray-500 mb-4">Try different search terms</p>
+      <button onclick="renderBooks(books)" class="btn-primary px-4 py-2 rounded-lg">
+        Show All Books
+      </button>
+    </div>
+  </main>
+
+  <script>
+    const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTIKcwJe8ngwx1OeGXnfwRq8PKnvBO79yKhb4ydi5h0FqgwsBf-ko6PtLIRj_YF9WNwTNj_Fb1NOcNh/pub?output=csv";
+    const PROXY_URLS = [
+      `https://api.allorigins.win/raw?url=${encodeURIComponent(SHEET_URL)}`,
+      `https://corsproxy.io/?${encodeURIComponent(SHEET_URL)}`,
+      `https://cors-anywhere.herokuapp.com/${SHEET_URL}`,
+      SHEET_URL // Direct attempt as fallback
+    ];
+    let books = [];
+
+    // Sample fallback data
+    const sampleBooks = [
+      {
+        id: 1,
+        title: "The Great Gatsby",
+        author: "F. Scott Fitzgerald",
+        isbn: "978-0-7432-7356-5",
+        year: "1925",
+        cover_url: "https://via.placeholder.com/120x180/4F8A8B/FFFFFF?text=Gatsby",
+        shelf_id: "A1-101",
+        availability: true
+      },
+      {
+        id: 2,
+        title: "1984",
+        author: "George Orwell",
+        isbn: "978-0-452-28423-4",
+        year: "1949",
+        cover_url: "https://via.placeholder.com/120x180/8B4F47/FFFFFF?text=1984",
+        shelf_id: "B2-205",
+        availability: false
+      },
+      {
+        id: 3,
+        title: "To Kill a Mockingbird",
+        author: "Harper Lee",
+        isbn: "978-0-06-112008-4",
+        year: "1960",
+        cover_url: "https://via.placeholder.com/120x180/4A7C59/FFFFFF?text=Mockingbird",
+        shelf_id: "C3-312",
+        availability: true
+      },
+      {
+        id: 4,
+        title: "Pride and Prejudice",
+        author: "Jane Austen",
+        isbn: "978-0-14-143951-8",
+        year: "1813",
+        cover_url: "https://via.placeholder.com/120x180/8B5A2B/FFFFFF?text=Pride",
+        shelf_id: "D1-150",
+        availability: true
+      },
+      {
+        id: 5,
+        title: "The Catcher in the Rye",
+        author: "J.D. Salinger",
+        isbn: "978-0-316-76948-0",
+        year: "1951",
+        cover_url: "https://via.placeholder.com/120x180/6B4E31/FFFFFF?text=Catcher",
+        shelf_id: "E2-280",
+        availability: true
+      },
+      {
+        id: 6,
+        title: "Animal Farm",
+        author: "George Orwell",
+        isbn: "978-0-452-28424-1",
+        year: "1945",
+        cover_url: "https://via.placeholder.com/120x180/2F4F4F/FFFFFF?text=Animal+Farm",
+        shelf_id: "B2-206",
+        availability: false
+      }
+    ];
+
+    // Parse CSV with better handling
+    function parseCSV(text) {
+      const lines = text.trim().split('\n');
+      const result = [];
+      
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+        
+        // Simple CSV parsing - handles basic cases
+        const row = [];
+        let current = '';
+        let inQuotes = false;
+        
+        for (let j = 0; j < line.length; j++) {
+          const char = line[j];
+          
+          if (char === '"') {
+            inQuotes = !inQuotes;
+          } else if (char === ',' && !inQuotes) {
+            row.push(current.trim());
+            current = '';
+          } else {
+            current += char;
+          }
+        }
+        row.push(current.trim());
+        result.push(row);
+      }
+      
+      return result;
+    }
+
+    // Try multiple proxy services to bypass CORS
+    async function tryFetchWithProxy(url, timeout = 5000) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
+      
+      try {
+        const response = await fetch(url, {
+          signal: controller.signal,
+          mode: 'cors'
+        });
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        
+        return await response.text();
+      } catch (error) {
+        clearTimeout(timeoutId);
+        throw error;
+      }
+    }
+
+    // Show loading state
+    function showLoading() {
+      const loadingDiv = document.getElementById('loading');
+      const errorDiv = document.getElementById('error');
+      loadingDiv.classList.remove('hidden');
+      errorDiv.classList.add('hidden');
+    }
+
+    // Hide loading state
+    function hideLoading() {
+      const loadingDiv = document.getElementById('loading');
+      loadingDiv.classList.add('hidden');
+    }
+
+    // Fetch and parse Google Sheet data
+    async function fetchBooksFromSheet(showAll = false) {
+      const errorDiv = document.getElementById('error');
+      const resultsDiv = document.getElementById('results');
+      const emptyState = document.getElementById('empty-state');
+
+      showLoading();
+      resultsDiv.innerHTML = '';
+      emptyState.classList.add('hidden');
+
+      let lastError = null;
+      let attemptedUrls = [];
+
+      // Try each proxy URL in sequence
+      for (let i = 0; i < PROXY_URLS.length; i++) {
+        const url = PROXY_URLS[i];
+        attemptedUrls.push(url);
+        
+        try {
+          console.log(`Attempting to fetch from: ${url.includes('allorigins') ? 'AllOrigins proxy' : url.includes('corsproxy') ? 'CORSProxy.io' : url.includes('cors-anywhere') ? 'CORS Anywhere' : 'Direct Google Sheets'}`);
+          
+          const text = await tryFetchWithProxy(url, i === PROXY_URLS.length - 1 ? 8000 : 4000);
+          
+          if (!text || text.trim() === '') {
+            throw new Error('Empty response');
+          }
+
+          // Parse CSV with improved parser
+          const rows = parseCSV(text);
+          
+          if (rows.length < 2) {
+            throw new Error('Invalid CSV format or no data rows');
+          }
+          
+          books = rows.slice(1).map((row, index) => ({
+            id: index + 1,
+            title: (row[0] || '').replace(/"/g, ''),
+            author: (row[1] || '').replace(/"/g, ''),
+            isbn: (row[2] || '').replace(/"/g, ''),
+            year: (row[3] || '').replace(/"/g, ''),
+            cover_url: (row[4] || 'https://via.placeholder.com/300x400/667eea/ffffff?text=📚').replace(/"/g, ''),
+            shelf_id: (row[5] || '').replace(/"/g, ''),
+            availability: (row[6] || '').toLowerCase().replace(/"/g, '') === 'true'
+          })).filter(book => book.title); // Filter out empty rows
+
+          console.log(`✅ Successfully loaded ${books.length} books from Google Sheets`);
+          
+          // Success! Clear any error messages and show books
+          errorDiv.classList.add('hidden');
+          hideLoading();
+          if (showAll) {
+            renderBooks(books);
+          }
+          return; // Exit function on success
+          
+        } catch (error) {
+          console.log(`❌ Failed: ${error.message}`);
+          lastError = error;
+          continue; // Try next proxy
+        }
+      }
+      
+      // All proxies failed, fall back to sample data
+      console.log('Using sample data as fallback');
+      books = sampleBooks;
+      
+      hideLoading();
+      
+      if (showAll) {
+        renderBooks(books);
+      }
+      
+      // Show informative error message
+      errorDiv.innerHTML = `
+        <div class="glass-effect rounded-xl p-4 border border-orange-200/30">
+          <div class="flex items-center gap-3 text-orange-100 mb-2">
+            <i class="fas fa-info-circle"></i>
+            <span class="font-medium">Using Sample Data</span>
+          </div>
+          <p class="text-orange-200/80 text-sm mb-3">Could not connect to Google Sheets. Showing demo books instead.</p>
+          <button onclick="fetchBooksFromSheet(true)" class="btn-modern text-sm px-4 py-2 rounded-lg">
+            <i class="fas fa-retry mr-2"></i>Try Again
+          </button>
+        </div>
+      `;
+      errorDiv.classList.remove('hidden');
+    }
+
+    // Update book count
+    function updateBookCount(count) {
+      const bookCountElement = document.getElementById('book-count');
+      bookCountElement.textContent = count;
+    }
+
+    // Render book cards with clean design
+    function renderBooks(list) {
+      const resultsDiv = document.getElementById('results');
+      const emptyState = document.getElementById('empty-state');
+      
+      resultsDiv.innerHTML = '';
+      emptyState.classList.add('hidden');
+      
+      updateBookCount(list.length);
+      
+      if (list.length === 0) {
+        emptyState.classList.remove('hidden');
+        return;
+      }
+
+      list.forEach((book) => {
+        const bookDiv = document.createElement('div');
+        bookDiv.className = 'card rounded-lg p-4';
+        
+        bookDiv.innerHTML = `
+          <div class="mb-4">
+            <img src="${book.cover_url}" 
+                 alt="${book.title} cover" 
+                 class="w-full h-48 object-cover rounded-lg bg-gray-100"
+                 onerror="this.src='https://via.placeholder.com/200x300/e2e8f0/9ca3af?text=📚'">
+          </div>
+          
+          <div class="space-y-2">
+            <h3 class="font-semibold text-gray-900 text-lg leading-tight">${book.title}</h3>
+            <p class="text-gray-600">${book.author}</p>
+            <p class="text-sm text-gray-500">${book.year} • ${book.shelf_id}</p>
+            
+            <div class="flex items-center justify-between pt-2">
+              <div class="flex items-center gap-2">
+                <div class="status-dot ${book.availability ? 'available' : 'unavailable'}"></div>
+                <span class="text-sm font-medium ${
+                  book.availability ? 'text-green-600' : 'text-red-600'
+                }">${book.availability ? 'Available' : 'Checked Out'}</span>
+              </div>
+              
+              <button class="text-xs text-blue-600 hover:text-blue-700 font-medium" 
+                      onclick="showBookDetails('${book.id}')">
+                View Details
+              </button>
+            </div>
+          </div>
+        `;
+        
+        resultsDiv.appendChild(bookDiv);
+      });
+    }
+    
+    // Show book details (placeholder function)
+    function showBookDetails(bookId) {
+      const book = books.find(b => b.id == bookId);
+      if (book) {
+        alert(`Book Details:\n\nTitle: ${book.title}\nAuthor: ${book.author}\nYear: ${book.year}\nISBN: ${book.isbn}\nShelf: ${book.shelf_id}\nStatus: ${book.availability ? 'Available' : 'Checked Out'}`);
+      }
+    }
+
+    // Search function
+    async function searchBooks() {
+      const query = document.getElementById('search-input').value.trim();
+      const type = document.getElementById('search-type').value;
+      const errorDiv = document.getElementById('error');
+
+      errorDiv.classList.add('hidden');
+
+      if (!query) {
+        renderBooks(books);
+        return;
+      }
+
+      const results = books.filter(book => {
+        if (type === 'keyword') {
+          return book.title.toLowerCase().includes(query.toLowerCase()) ||
+                 book.author.toLowerCase().includes(query.toLowerCase());
+        }
+        return String(book[type]).toLowerCase().includes(query.toLowerCase());
+      });
+
+      if (results.length === 0) {
+        errorDiv.textContent = "No books found. Try another search!";
+        errorDiv.classList.remove('hidden');
+      } else {
+        renderBooks(results);
+      }
+    }
+
+    // Load all books on homepage
+    window.addEventListener('load', () => fetchBooksFromSheet(true));
+
+    // Allow Enter key to trigger search
+    document.getElementById('search-input').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') searchBooks();
+    });
+  </script>
+</body>
+</html>
